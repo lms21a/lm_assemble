@@ -17,14 +17,18 @@ def token_length(examples):
     return {'num_tokens': num_tokens}
 
 def create_memmap(dataset, filename, dtype=np.int16):
-    max_tokens = max(dataset['num_tokens'])
+    total_tokens = sum(dataset['num_tokens'])
 
-    # Create a memmap array with shape (num_rows, max_tokens)
-    memmap_array = np.memmap(filename, dtype=dtype, mode='w+', shape=(len(dataset), max_tokens))
+    memmap_array = np.memmap(filename, dtype=dtype, mode='w+', shape=(total_tokens,))
+    
+    current_index = 0
 
-    for i, example in enumerate(dataset):
+    for example in dataset:
         tokens = example['tokens']
-        memmap_array[i, :len(tokens)] = tokens
+        num_tokens = example['num_tokens']
+
+        memmap_array[current_index:current_index + num_tokens] = tokens
+        current_index += num_tokens
 
     return memmap_array
 
