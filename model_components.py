@@ -152,3 +152,46 @@ class GatedFeedForward(nn.Module):
 
     def forward(self, x):
         return self.proj_out(F.silu(self.gate(x)) * self.proj_in(x))
+    
+# -----------------------------Mixture of Expert Layers-------------------------------
+    
+class MoeHashLayer(nn.Module):
+    def __init__(self, bsz, cntx, dim, num_experts):
+        super().__init__()
+        
+        self.experts = nn.ModuleList([GatedFeedForward(dim) for _ in range(num_experts)])
+        self.rand_maps = torch.randint(0, num_experts, (bsz * cntx,), dtype=torch.long)
+
+    def forward(self, x):
+            
+        B, T, C = x.shape
+
+        x = x.view(-1, C)
+        
+        output = torch.zeros_like(x)
+        for i, expert in enumerate(self.experts):
+            idx = torch.where(self.rand_maps == i)[0]
+            output[idx] += expert(x[idx])
+
+        return output.view(B, T, C)
+    
+class MoeRegLayer(nn.Module):
+    def __init__(self, dim, num_experts):
+        super().__init__()
+        self.experts = nn.ModuleList([GatedFeedForward(dim) for _ in range(num_experts)])
+        self.gate = nn.Linear(dim, num_experts, bias=False)
+
+    def forward(self, x):            
+        B, T, C = x.shape
+        x = x.view(B*T, C)
+        
+        logits = self.gate(x)
+        hidden_states, idxs = torch.topk(logits, 2)
+        hidden_states = F.softmax(hidden_states, dim=1)
+
+        output = torch.zeros_like(x)
+        for i, expert in enumerate(self.experts):
+            idx, chosen_expert = torch.where(idxs == i)
+            output[idx] += hidden_states[idx, chosen_expert, None] * expert(x[idx])
+            
+        return output.view(B,T,C)
