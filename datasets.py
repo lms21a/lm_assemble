@@ -1,4 +1,3 @@
-# TODO Rename arrays
 import torch
 from torch.utils.data import IterableDataset
 from random import shuffle
