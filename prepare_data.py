@@ -89,7 +89,7 @@ def train_tokenizer(dataset, tokenizer_model_path, sample_size, vocab_size, feat
 
 if __name__ == '__main__':
     
-    model_file = os.path.join('models','spm_model')    
+    model_file = os.path.join('saved_models','spm_model')    
     test_size = .1
 
     ds = load_dataset("RamAnanth1/lex-fridman-podcasts", cache_dir='data', split='train')
