@@ -72,14 +72,12 @@ if __name__ == '__main__':
 
     train_iter = iter(DataLoader(
     dataset=AutoRegDataset(train_arr, model_config.cntx, device),
-    batch_size=model_config.batch_size,
-    pin_memory=True    
+    batch_size=model_config.batch_size 
     ))
 
     test_iter = iter(DataLoader(
         dataset=AutoRegDataset(test_arr, model_config.cntx, device),
-        batch_size=model_config.batch_size,
-        pin_memory=True    
+        batch_size=model_config.batch_size
     ))
 
     model._init_params()
@@ -98,9 +96,10 @@ if __name__ == '__main__':
                     loss = loss / args.grad_accum_steps
                 
                     scaler.scale(loss).backward()
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                
+        
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none = True)

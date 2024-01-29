@@ -49,16 +49,15 @@ class RoPE(nn.Module):
         self.freqs_cis = torch.stack([freqs_cis.real, freqs_cis.imag], dim=-1)
 
     def apply_freq_cis(self, x):
-        xshaped = x.float().reshape(*x.shape[:-1], -1, 2)
-
-        freqs_cis = self.freqs_cis.view(1, xshaped.size(1), 1, xshaped.size(3), 2)
+        xshaped = x.float().reshape(*x.shape[:-1], -1, 2).to(x.device)
+        freqs_cis = self.freqs_cis.view(1, xshaped.size(1), 1, xshaped.size(3), 2).to(x.device)
         x_out2 = torch.stack(
             [
                 xshaped[..., 0] * freqs_cis[..., 0] - xshaped[..., 1] * freqs_cis[..., 1],
                 xshaped[..., 1] * freqs_cis[..., 0] + xshaped[..., 0] * freqs_cis[..., 1],
             ],
             -1,
-        )
+        ).to(x.device)
     
         x_out2 = x_out2.flatten(3)
         return x_out2.type_as(x)
