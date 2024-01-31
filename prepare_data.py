@@ -1,15 +1,14 @@
-from datasets import load_dataset
 import numpy as np
-import io
-import os
-import sentencepiece as spm
 from tqdm import tqdm
+from datasets import load_dataset
+from tokenizer import Tokenizer
+
+import os
 import shutil
 from functools import partial
 
-def tokenize(example, enc):
-    tokens = enc.Encode(example['captions'])
-
+def tokenize(example, tokenizer):
+    tokens = tokenizer.encode(example['captions'])
     return {'tokens': tokens}
 
 def token_length(examples):
@@ -57,54 +56,24 @@ def clear_folder_contents(folder_path, ignore_file_types=None):
         except Exception as e:
             print(f'Failed to delete {file_path}. Reason: {e}')
 
-def train_tokenizer(dataset, tokenizer_model_path, sample_size, vocab_size, feature_name):
-    
-    tokenizer_sample_size = sample_size
-    samples = np.random.randint(0, ds.num_rows-1, int(tokenizer_sample_size * ds.num_rows))
-    
-    data_io = io.StringIO()
-    
-    sentence_length = []
-    
-    for sample in samples:
-        text = dataset[feature_name][sample] + '\n'
-    
-        sentence_length.append(len(text))
-        
-        data_io.write(text)
-        
-    data_io.seek(0)
-    
-    spm.SentencePieceTrainer.train(
-        sentence_iterator=data_io,
-        model_prefix = tokenizer_model_path,
-        vocab_size = vocab_size,
-        max_sentence_length = max(sentence_length) + 100
-    )
-    
-    data_io.flush()
-    data_io.close()
-
-    return 0
-
 if __name__ == '__main__':
     
-    model_file = os.path.join('saved_models','spm_model')    
+    model_file = os.path.join('saved_models','spm_model.model')    
     test_size = .1
+
+    tokenizer = Tokenizer(model_file=model_file)
 
     ds = load_dataset("RamAnanth1/lex-fridman-podcasts", cache_dir='data', split='train')
 
-    train_tokenizer(
-        ds, 
-        model_file,
-        sample_size=.05, 
-        vocab_size=1024, 
-        feature_name='captions'
+    tokenizer.train_tokenizer(
+        dataset=ds.select_columns(['captions']),
+        vocab_size=1024,
+        tokenizer_sample_size=.1
     )
 
-    sp = spm.SentencePieceProcessor(model_file=model_file + '.model', add_bos=True, add_eos=True)
+    tokenizer.load_tokenizer(add_bos=True, add_eos=True)
 
-    tokenize_fn = partial(tokenize, enc=sp)
+    tokenize_fn = partial(tokenize, tokenizer=tokenizer)
     rm_cols = list(ds.features)
     ds = ds.map(tokenize_fn, batched=True, remove_columns=rm_cols)
     
