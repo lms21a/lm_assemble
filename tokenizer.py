@@ -5,6 +5,7 @@ import io
 
 class Tokenizer:
     def __init__(self, model_file: str, model_type: str = 'bpe') -> None:
+        assert model_file.endswith('.model'), "Model File Must end with .model to match SentencePiece"
         self.model_file: str = model_file
         self.model_type: str = model_type
         
@@ -15,6 +16,10 @@ class Tokenizer:
 
     def _ensure_loaded(self) -> None:
         assert self.sp is not None, "Tokenizer model is not loaded. Call load_tokenizer first."
+    
+    def _remove_suffix(self) -> None:
+        if self.model_file.endswith('.model'):
+            return self.model_file[:-6]
 
     def encode(self, text: Union[str, List[str]]) -> Union[List[int], List[List[int]]]:
         self._ensure_loaded()
@@ -42,7 +47,7 @@ class Tokenizer:
         
         spm.SentencePieceTrainer.train(
             sentence_iterator=data_io,
-            model_prefix = self.model_file,
+            model_prefix = self._remove_suffix(),
             model_type = self.model_type,
             vocab_size = vocab_size,
             max_sentence_length = max(sentence_length) + 100
