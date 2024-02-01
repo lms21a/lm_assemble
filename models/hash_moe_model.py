@@ -21,7 +21,7 @@ class MoeHashBlock(nn.Module):
 
         self.ffn_norm = RMSNorm(config.dim)
 
-        self.moe_ffn = MoeHashLayer(config.batch_size, config.cntx, config.dim, config.num_experts)
+        self.moe_ffn = MoeHashLayer(config.dim, config.num_experts)
 
     def forward(self, x):
         h = x + self.attn(self.attn_norm(x))

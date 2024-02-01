@@ -20,12 +20,10 @@ class RMSNorm(torch.nn.Module):
 # -----------------------------Positional Encoding-------------------------------
     
 class RoPE(nn.Module):
-    # Adopted From https://github.com/pytorch-labs/gpt-fast/blob/main/model.py
+    # Adopted From https://github.com/facebookresearch/llama/blob/main/llama/model.py
     _cache = {}
     def __init__(self, seq_len, head_size, base=10000):
         super().__init__()
-
-        assert head_size % 2 == 0, 'Head Size must be even'
         
         self.seq_len = seq_len
         self.head_size = head_size
@@ -41,26 +39,28 @@ class RoPE(nn.Module):
             self.freqs_cis = RoPE._cache[key]            
             
     def _precompute_freqs_cis(self):
-
         freqs = 1.0 / (self.base ** (torch.arange(0, self.head_size, 2)[: (self.head_size // 2)].float() / self.head_size))
-        t = torch.arange(self.seq_len, device=freqs.device)
-        freqs = torch.outer(t, freqs)
-        freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
-        self.freqs_cis = torch.stack([freqs_cis.real, freqs_cis.imag], dim=-1)
-
-    def apply_freq_cis(self, x):
-        xshaped = x.float().reshape(*x.shape[:-1], -1, 2).to(x.device)
-        freqs_cis = self.freqs_cis.view(1, xshaped.size(1), 1, xshaped.size(3), 2).to(x.device)
-        x_out2 = torch.stack(
-            [
-                xshaped[..., 0] * freqs_cis[..., 0] - xshaped[..., 1] * freqs_cis[..., 1],
-                xshaped[..., 1] * freqs_cis[..., 0] + xshaped[..., 0] * freqs_cis[..., 1],
-            ],
-            -1,
-        ).to(x.device)
+        t = torch.arange(self.seq_len, device=freqs.device)  # type: ignore
+        freqs = torch.outer(t, freqs).float()  # type: ignore
+        self.freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
     
-        x_out2 = x_out2.flatten(3)
-        return x_out2.type_as(x)
+    def _reshape_for_broadcast(self, freqs_cis, x):
+        seq_len = x.size(1)  
+        ndim = x.ndim
+        assert 0 <= 1 < ndim
+        freqs_cis_sliced = freqs_cis[:seq_len, :]
+        assert freqs_cis_sliced.shape == (seq_len, x.shape[-1])
+        shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
+        return freqs_cis_sliced.view(*shape)
+
+    def apply_freq_cis(self, xq, xk):
+
+        xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
+        xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
+        freqs_cis = self._reshape_for_broadcast(self.freqs_cis, xq_)
+        xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3)
+        xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
+        return xq_out.type_as(xq), xk_out.type_as(xk)
 
 class SinPosEnc(nn.Module):
     def __init__(self, dim):
@@ -130,7 +130,7 @@ class MHA_RoPE(nn.Module):
 
         q, k, v = map(lambda x: x.view(B, T, self.num_heads, self.head_size), (q,k,v))
 
-        q, k = self.rope.apply_freq_cis(q), self.rope.apply_freq_cis(k)
+        q, k = self.rope.apply_freq_cis(q, k)
 
         q, k, v = map(lambda x: x.transpose(1,2), (q,k,v))
 
@@ -155,21 +155,28 @@ class GatedFeedForward(nn.Module):
 # -----------------------------Mixture of Expert Layers-------------------------------
     
 class MoeHashLayer(nn.Module):
-    def __init__(self, bsz, cntx, dim, num_experts):
+    def __init__(self, dim, num_experts):
         super().__init__()
         
+        self.num_experts = num_experts
         self.experts = nn.ModuleList([GatedFeedForward(dim) for _ in range(num_experts)])
-        self.rand_maps = torch.randint(0, num_experts, (bsz * cntx,), dtype=torch.long)
+
+        self.rand_maps_cache = {}
+        self.cache_key = None
 
     def forward(self, x):
-            
         B, T, C = x.shape
+        current_key = (B, T)
+
+        if self.cache_key != current_key:
+            self.rand_maps_cache[current_key] = torch.randint(0, self.num_experts, (B * T,), dtype=torch.long)
+            self.cache_key = current_key
 
         x = x.view(-1, C)
-        
+
         output = torch.zeros_like(x)
         for i, expert in enumerate(self.experts):
-            idx = torch.where(self.rand_maps == i)[0]
+            idx = torch.where(self.rand_maps_cache[current_key] == i)[0]
             output[idx] += expert(x[idx])
 
         return output.view(B, T, C)
