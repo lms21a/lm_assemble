@@ -161,7 +161,7 @@ class MoeHashLayer(nn.Module):
         self.num_experts = num_experts
         self.experts = nn.ModuleList([GatedFeedForward(dim) for _ in range(num_experts)])
 
-        self.rand_maps_cache = {}
+        self.rand_maps_cache = {} # After Training Can Save Cache as standalone dictionary
         self.cache_key = None
 
     def forward(self, x):
@@ -177,6 +177,24 @@ class MoeHashLayer(nn.Module):
         output = torch.zeros_like(x)
         for i, expert in enumerate(self.experts):
             idx = torch.where(self.rand_maps_cache[current_key] == i)[0]
+            output[idx] += expert(x[idx])
+
+        return output.view(B, T, C)
+
+class MoeHashV2Layer(nn.Module):
+    def __init__(self, dim, num_experts):
+        super().__init__()
+        
+        self.num_experts = num_experts
+        self.experts = nn.ModuleList([GatedFeedForward(dim) for _ in range(num_experts)])
+
+    def forward(self, x, mapped_tokens):
+        B, T, C = x.shape
+        x = x.view(-1, C)
+
+        output = torch.zeros_like(x)
+        for i, expert in enumerate(self.experts):
+            idx = torch.where(mapped_tokens == i)[0]
             output[idx] += expert(x[idx])
 
         return output.view(B, T, C)

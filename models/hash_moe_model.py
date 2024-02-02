@@ -1,5 +1,6 @@
+import torch
 import torch.nn as nn
-from models.model_components import RMSNorm, MHA_RoPE, MoeHashLayer
+from models.model_components import RMSNorm, MHA_RoPE, MoeHashV2Layer
 from dataclasses import dataclass
 
 @dataclass
@@ -21,11 +22,11 @@ class MoeHashBlock(nn.Module):
 
         self.ffn_norm = RMSNorm(config.dim)
 
-        self.moe_ffn = MoeHashLayer(config.dim, config.num_experts)
+        self.moe_ffn = MoeHashV2Layer(config.dim, config.num_experts)
 
-    def forward(self, x):
+    def forward(self, x, mapped_tokens):
         h = x + self.attn(self.attn_norm(x))
-        out = h + self.moe_ffn(self.ffn_norm(h))
+        out = h + self.moe_ffn(self.ffn_norm(h), mapped_tokens)
         return out
 
 class MoeHashGPT(nn.Module):
@@ -40,16 +41,26 @@ class MoeHashGPT(nn.Module):
 
         self.proj_out = nn.Linear(config.dim, config.vocab_size)
 
+        self.register_buffer('hash_map', self.create_hash_map(config.vocab_size, config.num_experts))
+
+    def create_hash_map(self, vocab_size, num_experts):
+        token_list = torch.randperm(vocab_size)
+        experts_for_token = torch.randint(0, num_experts, (vocab_size,))
+        hash_map = torch.zeros_like(token_list)
+        hash_map[token_list] = experts_for_token[token_list]
+        return hash_map
+
     def _init_params(self):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
     def forward(self, x):
-        
-        x = self.embed(x)
+            mapped_tokens = self.hash_map[x]
+            
+            x = self.embed(x)
 
-        for block in self.blocks:
-            x = block(x)
+            for block in self.blocks:
+                x = block(x, mapped_tokens)
 
-        return self.proj_out(x)
+            return self.proj_out(x)
