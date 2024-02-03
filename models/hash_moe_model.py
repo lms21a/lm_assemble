@@ -64,3 +64,15 @@ class MoeHashGPT(nn.Module):
                 x = block(x, mapped_tokens)
 
             return self.proj_out(x)
+    
+    @torch.inference_mode()
+    def generate(self, prefix_text=None, max_len=100):
+        tokens = torch.tensor([[1]]) if prefix_text is None else torch.tensor(self.sampler.tokenizer.encode([prefix_text]))
+        
+        for _ in range(max_len):    
+            logits = self.forward(tokens)
+            next_token = self.sampler(logits)
+            tokens = torch.cat((tokens, next_token), dim=-1)
+
+        text = self.sampler.tokenizer.decode(tokens.view(-1).tolist()) 
+        return text
