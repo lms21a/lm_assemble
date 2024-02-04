@@ -30,9 +30,10 @@ class MoeHashBlock(nn.Module):
         return out
 
 class MoeHashGPT(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, sampler):
         super().__init__()
         
+        self.sampler = sampler
         self.embed = nn.Embedding(config.vocab_size, config.dim)
 
         self.blocks = nn.ModuleList([
