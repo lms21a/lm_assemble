@@ -1,5 +1,6 @@
+import torch
 import torch.nn as nn
-from models.model_components import RMSNorm, MHA_RoPE, GatedFeedForward
+from models.model_components import RMSNorm, MultiHeadAttention, GatedFeedForward
 from dataclasses import dataclass
 
 @dataclass
@@ -16,7 +17,7 @@ class DenseBlock(nn.Module):
         super().__init__()
 
         self.attn_norm = RMSNorm(config.dim)
-        self.attn = MHA_RoPE(config.cntx, config.dim, config.num_heads)
+        self.attn = MultiHeadAttention(config.dim, config.num_heads)
 
         self.ffn_norm = RMSNorm(config.dim)
         self.ffn = GatedFeedForward(config.dim)
@@ -31,6 +32,7 @@ class DenseGPT(nn.Module):
         super().__init__()
         
         self.embed = nn.Embedding(config.vocab_size, config.dim)
+        self.pos = nn.Embedding(config.cntx, config.dim)
 
         self.blocks = nn.ModuleList([
             DenseBlock(config=config) for _ in range(config.num_layers)
@@ -45,6 +47,7 @@ class DenseGPT(nn.Module):
         
     def forward(self, x):
         x = self.embed(x)
+        x = x + self.pos(torch.arange(x.size(1), device=x.device))
 
         for block in self.blocks:
             x = block(x)
