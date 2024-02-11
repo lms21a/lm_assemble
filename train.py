@@ -18,7 +18,7 @@ from helper_func import (
     count_parameters, timestamp
 )
 
-from models.hash_moe_model import MoeHashGPTConfig, MoeHashGPT
+from models.dense_model import DenseGPT, DenseConfig
 import wandb
 
 
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     parser.add_argument('--dim', type=int, default=32, help='Dimension size')
     parser.add_argument('--num_heads', type=int, default=4, help='Number of attention heads')
     parser.add_argument('--num_layers', type=int, default=4, help='Number of layers')
-    parser.add_argument('--num_experts', type=int, default=4, help='Number of experts')
+    # parser.add_argument('--num_experts', type=int, default=4, help='Number of experts')
 
     args = parser.parse_args()
 
@@ -52,17 +52,16 @@ if __name__ == '__main__':
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model_config = MoeHashGPTConfig(
+    model_config = DenseConfig(
         vocab_size=args.vocab_size,
         batch_size=args.batch_size,
         cntx=args.cntx,
         dim=args.dim,
         num_heads=args.num_heads,
-        num_layers=args.num_layers,
-        num_experts=args.num_experts
+        num_layers=args.num_layers
     )
 
-    model = MoeHashGPT(config=model_config).to(device=device)
+    model = DenseGPT(config=model_config).to(device=device)
     print(count_parameters(model))
     scaler = GradScaler()
     optimizer = optim.AdamW(model.parameters(), lr=args.max_lr)
