@@ -109,7 +109,35 @@ class MultiHeadAttention(nn.Module):
         y = y.transpose(1,2).contiguous().view(B, T, C)
         
         return self.proj_out(y)
-    
+# TODO: Rename Attention Mechs For Clarity
+class UnmaskedMHA(nn.Module):
+    def __init__(self, dim, num_heads):
+        super().__init__()
+
+        assert dim % num_heads == 0, 'Hidden Dimension needs to be divisible by num_heads'
+        self.dim = dim
+        self.num_heads = num_heads
+        
+        self.head_size = self.dim // self.num_heads
+        
+        self.norm = RMSNorm(dim)
+        self.wqkv = nn.Linear(self.dim, self.dim * 3)
+        self.proj_out = nn.Linear(self.dim, self.dim)
+
+    def forward(self, x):
+        B, T, C = x.shape
+        
+        x = F.relu(self.norm(x))
+        
+        q, k, v = self.wqkv(x).split([self.dim, self.dim, self.dim], dim = -1)
+
+        q, k, v = map(lambda x: x.view(B, T, self.num_heads, self.head_size).transpose(1,2), (q,k,v))
+
+        y = F.scaled_dot_product_attention(q, k, v, attn_mask=None)
+        y = y.transpose(1,2).contiguous().view(B, T, C)
+        
+        return self.proj_out(y)
+
 class MHA_RoPE(nn.Module):
     def __init__(self, cntx, dim, num_heads):
         super().__init__()

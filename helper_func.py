@@ -5,6 +5,10 @@ import torch
 import torch.nn.functional as F
 import wandb
 import os
+import tqdm
+import shutil
+import pandas as pd
+import matplotlib.pyplot as plt
 
 def loss_fn(model, x, y):
     logits = model(x)
@@ -114,3 +118,55 @@ def load_checkpoint(model, optimizer, scaler, filename):
     scaler.load_state_dict(checkpoint['scaler_state'])
     
     return checkpoint['step'] 
+
+def clear_folder_contents(folder_path, ignore_file_types=None):
+    """
+    Clear out all the contents of the specified folder without deleting the folder itself,
+    with an option to ignore files of certain types.
+
+    :param folder_path: Path to the folder whose contents are to be cleared.
+    :param ignore_file_types: List of file extensions to ignore, or None to clear all files. Example: ['.npy', '.txt']
+    """
+    # Loop through each item in the folder
+    for filename in tqdm(os.listdir(folder_path), desc='Clearing Out Folder'):
+        file_path = os.path.join(folder_path, filename)
+
+        # Check if the file type should be ignored
+        if ignore_file_types and any(file_path.endswith(ext) for ext in ignore_file_types):
+            continue
+
+        try:
+            # Remove the item
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.remove(file_path)  # Remove file or link
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)  # Remove directory
+        except Exception as e:
+            print(f'Failed to delete {file_path}. Reason: {e}')
+
+def plot_csv(csv_filepath):
+    # Read the CSV file into a DataFrame
+    df = pd.read_csv(csv_filepath)
+    
+    # Plotting Loss (Train and Test)
+    plt.figure(figsize=(14, 6))
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(df['Step'], df['Train_Loss'], label='Train Loss')
+    plt.plot(df['Step'], df['Test_Loss'], label='Test Loss')
+    plt.xlabel('Step')
+    plt.ylabel('Loss')
+    plt.title('Loss over Steps')
+    plt.legend()
+    
+    # Plotting Accuracy (Train and Test)
+    plt.subplot(1, 2, 2)
+    plt.plot(df['Step'], df['Train_Acc'], label='Train Accuracy')
+    plt.plot(df['Step'], df['Test_Acc'], label='Test Accuracy')
+    plt.xlabel('Step')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy over Steps')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
