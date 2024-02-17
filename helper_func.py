@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import wandb
 import os
-import tqdm
+from tqdm import tqdm
 import shutil
 import pandas as pd
 import matplotlib.pyplot as plt
