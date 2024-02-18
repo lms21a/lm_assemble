@@ -45,15 +45,16 @@ if __name__ == '__main__':
     ds = load_from_disk('data/ag_news-ds')
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    learning_rate = 8e-4
-    steps = 10000
-    eval_every_n = 100
+    learning_rate = .001
+    steps = 4000
+    eval_every_n = 400
     eval_steps = 100
+    grad_accum_steps = 4
 
     config = EncoderConfig(
         vocab_size=512,
         batch_size=32,
-        cntx=512,
+        cntx=128,
         dim=32,
         num_heads=4,
         num_layers=4,
@@ -95,10 +96,13 @@ if __name__ == '__main__':
                 Test_Acc=test_acc.item()
             )
         
-        x, y = next(train_iter)
-        loss = loss_fn(model, x, y)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+        for mini_step in range(grad_accum_steps):
+            x, y = next(train_iter)
+            loss = loss_fn(model, x, y)
+            loss = loss / grad_accum_steps
+            loss.backward()
+        
         optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
 
     plot_csv('loss_log.csv')
