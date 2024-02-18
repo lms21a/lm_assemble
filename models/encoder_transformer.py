@@ -32,6 +32,8 @@ class EncoderTransformer(nn.Module):
     def __init__(self, config):
         super().__init__()
         
+        flattened_dim = config.dim * config.cntx
+
         self.embed = nn.Embedding(config.vocab_size, config.dim)
         self.pos = nn.Embedding(config.cntx, config.dim)
 
@@ -39,17 +41,19 @@ class EncoderTransformer(nn.Module):
             EncoderBlock(config=config) for _ in range(config.num_layers)
         ])
 
-        self.proj_out = nn.Linear(config.dim * config.cntx, config.num_classes)
+        self.pre_proj_out = nn.Linear(flattened_dim, flattened_dim // 4)
+        self.proj_out = nn.Linear(flattened_dim // 4, config.num_classes)
         
     def forward(self, x):
+        B, _ = x.shape
         x = self.embed(x)
         x = x + self.pos(torch.arange(x.size(1), device=x.device))
 
         for block in self.blocks:
             x = block(x)
         
-        B, T, C = x.shape
-        x = x.view(B, T*C)
+        x = x.view(B, -1)
+        x = self.pre_proj_out(x)
         
         return self.proj_out(x)
 

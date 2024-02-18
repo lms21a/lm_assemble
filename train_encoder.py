@@ -46,8 +46,8 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     learning_rate = .001
-    steps = 4000
-    eval_every_n = 400
+    steps = 2000
+    eval_every_n = steps // 10
     eval_steps = 100
     grad_accum_steps = 4
 
