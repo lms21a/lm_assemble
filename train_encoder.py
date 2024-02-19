@@ -80,7 +80,7 @@ if __name__ == '__main__':
     ))
 
     model = MoeEncoderTransformer(config=config).to(device=device)
-    model._print_model_size()
+    model.print_model_size()
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
     logger = CSVLogger('loss_log.csv', fieldnames=['Step', 'Train_Loss', 'Train_Acc', 'Test_Loss', 'Test_Acc'])
     eval_model_fn = partial(eval_model, model=model, train_iter=train_iter, test_iter=test_iter)
