@@ -54,7 +54,7 @@ if __name__ == '__main__':
         vocab_size=512,
         batch_size=32,
         cntx=128,
-        dim=32,
+        dim=64,
         num_heads=4,
         num_layers=4,
         num_experts=8,
@@ -79,7 +79,7 @@ if __name__ == '__main__':
         batch_size=config.batch_size
     ))
 
-    model = MoeEncoderTransformer(config=config).to(device)
+    model = MoeEncoderTransformer(config=config).to(device=device)
     model._print_model_size()
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
     logger = CSVLogger('loss_log.csv', fieldnames=['Step', 'Train_Loss', 'Train_Acc', 'Test_Loss', 'Test_Acc'])

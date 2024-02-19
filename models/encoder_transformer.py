@@ -97,7 +97,7 @@ class MoeEncoderTransformer(nn.Module):
         self.pos = nn.Embedding(config.cntx, config.dim)
 
         self.blocks = nn.ModuleList([
-            EncoderBlock(config=config) for _ in range(config.num_layers)
+            MoeEncoderBlock(config=config) for _ in range(config.num_layers)
         ])
 
         self.proj_out = nn.Linear(config.dim * config.cntx, config.num_classes)
