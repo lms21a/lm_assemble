@@ -6,7 +6,7 @@ from datasets import load_from_disk
 from pytorch_datasets import LabeledDataset
 from torch.utils.data import DataLoader
 
-from models.encoder_transformer import EncoderConfig, EncoderTransformer
+from models.encoder_transformer import MoeEncoderConfig, MoeEncoderTransformer
 
 from tqdm import tqdm
 from functools import partial
@@ -40,7 +40,6 @@ def eval_model(eval_steps, model, train_iter, test_iter):
 
     return metrics.mean(0)
 
-
 if __name__ == '__main__':
     ds = load_from_disk('data/ag_news-ds')
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -51,13 +50,14 @@ if __name__ == '__main__':
     eval_steps = 100
     grad_accum_steps = 4
 
-    config = EncoderConfig(
+    config = MoeEncoderConfig(
         vocab_size=512,
         batch_size=32,
         cntx=128,
         dim=32,
         num_heads=4,
         num_layers=4,
+        num_experts=8,
         num_classes=4
     )
 
@@ -79,8 +79,8 @@ if __name__ == '__main__':
         batch_size=config.batch_size
     ))
 
-    model = EncoderTransformer(config=config).to(device)
-    model.print_model_size()
+    model = MoeEncoderTransformer(config=config).to(device)
+    model._print_model_size()
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
     logger = CSVLogger('loss_log.csv', fieldnames=['Step', 'Train_Loss', 'Train_Acc', 'Test_Loss', 'Test_Acc'])
     eval_model_fn = partial(eval_model, model=model, train_iter=train_iter, test_iter=test_iter)
