@@ -50,7 +50,15 @@ class Tokenizer:
             model_prefix = self._remove_suffix(),
             model_type = self.model_type,
             vocab_size = vocab_size,
-            max_sentence_length = max(sentence_length) + 100
+            max_sentence_length = max(sentence_length) + 100,
+            normalization_rule_name='identity',
+            shuffle_input_sentence=True,
+            character_coverage=1.0,
+            byte_fallback=True,
+            split_digits=True,
+            split_by_unicode_script=True,
+            split_by_whitespace=True,
+            split_by_number=True
         )
 
         data_io.flush()
