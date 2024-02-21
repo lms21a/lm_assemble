@@ -53,7 +53,7 @@ class Tokenizer:
             max_sentence_length = max(sentence_length) + 100,
             normalization_rule_name='identity',
             shuffle_input_sentence=True,
-            character_coverage=1.0,
+            character_coverage=.9995,
             byte_fallback=True,
             split_digits=True,
             split_by_unicode_script=True,
