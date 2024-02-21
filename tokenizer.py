@@ -58,7 +58,8 @@ class Tokenizer:
             split_digits=True,
             split_by_unicode_script=True,
             split_by_whitespace=True,
-            split_by_number=True
+            split_by_number=True,
+            add_dummy_prefix=True
         )
 
         data_io.flush()
