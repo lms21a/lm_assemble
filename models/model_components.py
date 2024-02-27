@@ -3,6 +3,42 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
+# -----------------------------Convolution Layers-------------------------------
+class Downsample(nn.Module):
+    def __init__(self, channel):
+        super().__init__()
+        self.down = nn.Conv2d(channel, channel, kernel_size=3, stride=2)
+
+    def forward(self, x):
+        pad = (0, 1, 0, 1)
+        x = F.pad(x, pad, mode="constant", value=0)
+        return self.down(x)
+
+class ResNetLayer(nn.Module):
+    def __init__(self, in_channels, out_channels=None, num_groups=4):
+        super().__init__()
+
+        out_channels = out_channels or in_channels
+
+        self.norm1 = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        
+        self.norm2 = nn.GroupNorm(num_groups=num_groups, num_channels=out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+
+        if in_channels != out_channels:
+            self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
+
+    def forward(self, x):
+        h = x
+        h = self.norm1(h)
+        h = self.conv1(h * F.silu(h))
+
+        h = self.norm2(h)
+        h = self.conv2(h * F.silu(h))
+
+        return h + (self.shortcut(x) if hasattr(self, "shortcut") else x)
+
 # ---------------------------Norms-----------------------------------------------
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim, eps=1e-5):
@@ -166,6 +202,30 @@ class MHA_RoPE(nn.Module):
         y = y.transpose(1,2).contiguous().view(B, T, C)
         
         return self.proj_out(y)
+    
+class ConvAttention(nn.Module):
+    def __init__(self, in_channels, num_groups=32):
+        super().__init__()
+        assert in_channels % num_groups == 0, "Channels must be divisible by groups"
+
+        self.norm = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels)
+
+        self.wq = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0)
+        self.wk = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0)
+        self.wv = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0)
+        self.wo = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0)
+
+    def forward(self, x):
+        b, c, h, w = x.shape
+        h_ = x
+        q, k, v = self.wq(h_), self.wk(h_), self.wv(h_)
+
+        q, k, v = map(lambda x: x.view(b, c, h*w).transpose(1,2), (q,k,v))
+
+        h_ = F.scaled_dot_product_attention(q, k, v, attn_mask=None)
+        h_ = h_.view(b, c, h, w)
+
+        return self.wo(h_) + x
 
 # -----------------------------Feed Forward Blocks-------------------------------
 
