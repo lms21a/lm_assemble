@@ -1,6 +1,12 @@
+from typing import Optional, Callable
+
 import torch
+from torch import einsum, Tensor
 import torch.nn as nn
 import torch.nn.functional as F
+
+import einx
+
 import math
 
 # -----------------------------Convolution Layers-------------------------------
@@ -145,6 +151,7 @@ class MultiHeadAttention(nn.Module):
         y = y.transpose(1,2).contiguous().view(B, T, C)
         
         return self.proj_out(y)
+    
 # TODO: Rename Attention Mechs For Clarity
 class UnmaskedMHA(nn.Module):
     def __init__(self, dim, num_heads):
@@ -227,6 +234,159 @@ class ConvAttention(nn.Module):
 
         return self.wo(h_) + x
 
+# Adapted From https://github.com/lucidrains/local-attention
+
+class CausalLocalAttention(nn.Module):
+    """
+    Causal Local Attention
+    Expects x: (batch_size seq_len, number_heads, head_dim)
+    """
+
+    def __init__(
+        self,
+        head_dim: int,
+        cntx: int,
+        window_size: int,
+        look_backward: int = 1,
+        use_flash_attn: bool = False,
+        scale: Optional[float] = None,
+    ):
+        super().__init__()
+
+        if use_flash_attn:
+            print("WARNING: AT THE MOMENT, FLASH ATTENTION INTRODUCES NUMERICAL INSTABILITES")
+            print('PROCEED WITH CAUTION')
+        
+        self.head_dim = head_dim
+        self.cntx = cntx
+        self.use_flash_attn = use_flash_attn
+
+        self.scale = scale if scale is not None else head_dim ** -.5
+        self.window_size = window_size
+
+        self.look_backward = look_backward
+
+        # relative positions
+        self.rope = RoPE(cntx, head_dim)
+
+    def max_neg_value(self, tensor):
+        return -torch.finfo(tensor.dtype).max   
+
+    def look_around(self, x, backward = 1, forward = 0, pad_value = -1, dim = 2):
+        t = x.shape[1]
+        dims = (len(x.shape) - dim) * (0, 0)
+        padded_x = F.pad(x, (*dims, backward, forward), value = pad_value)
+        tensors = [padded_x[:, ind:(ind + t), ...] for ind in range(forward + backward + 1)]
+        return torch.cat(tensors, dim = dim)
+
+    def forward(
+            self,
+            q: Tensor,
+            k: Tensor,
+            v: Tensor
+    ) -> Tensor:
+
+        shape, pad_value, window_size, look_backward, = q.shape, -1, self.window_size, self.look_backward
+
+        # Pack for ease of shape use
+        q, k, v = map(lambda x: einx.rearrange('b t h d -> (b h) t d', x, b=shape[0]), (q,k,v))
+
+        b, n, dim_head, device= *q.shape, q.device
+
+
+        assert (n % window_size) == 0, f'sequence length {n} must be divisible by window size {window_size} for local attention'
+
+        windows = n // window_size
+
+        seq = torch.arange(n, device = device)
+        b_t = einx.rearrange('(w n) -> 1 w n', seq, w = windows, n = window_size)
+
+        # bucketing
+        
+        bq, bk, bv = map(lambda t: einx.rearrange('b (w n) d -> b w n d', t, w = windows), (q, k, v))
+
+        bq = bq * self.scale
+
+        look_around_kwargs = dict(
+            backward =  look_backward,
+            forward =  0,
+            pad_value = pad_value
+        )
+
+        bk = self.look_around(bk, **look_around_kwargs)
+        bv = self.look_around(bv, **look_around_kwargs)
+
+        # rotary embeddings
+        bq, bk = self.rope.apply_freq_cis(bq, bk)
+
+        bq_t = b_t
+        bq_k = self.look_around(b_t, **look_around_kwargs)
+
+        bq_t = einx.rearrange('... i -> ... i 1', bq_t)
+        bq_k = einx.rearrange('... j -> ... 1 j', bq_k)
+
+        pad_mask = bq_k == pad_value
+
+        causal_mask = bq_t < bq_k
+
+        if self.use_flash_attn:
+            mask = causal_mask | pad_mask
+            out = F.scaled_dot_product_attention(bq, bk, bv, attn_mask=mask, scale=self.scale)
+        
+        else:    
+            sim = einsum('b h i e, b h j e -> b h i j', bq, bk)
+            mask_value = self.max_neg_value(sim)
+
+            sim = sim.masked_fill(causal_mask, mask_value)
+            del causal_mask
+
+            sim = sim.masked_fill(pad_mask, mask_value)
+
+            # attention
+
+            attn = sim.softmax(dim = -1)
+
+            # aggregation
+            out = einsum('b h i j, b h j e -> b h i e', attn, bv)
+
+        out = einx.rearrange('(b h) w n c -> b (w n) h c', out, w=windows, b=shape[0])
+
+        return out
+
+# Adapted from https://arxiv.org/abs/2402.19427
+class LocalMQA(nn.Module):
+    def __init__(
+            self,
+            dim: int,
+            cntx: int,
+            qheads: int,
+            window_size: int
+    ):
+        super().__init__()
+        
+        assert dim % qheads == 0, f'Embedding Dimension ({dim}) must be divisible by the number of query heads {qheads}'
+        head_dim = dim // qheads
+
+        self.qheads = qheads
+
+        self.wq = nn.Linear(dim, qheads * head_dim, bias=False)
+        self.wkv = nn.Linear(dim, head_dim * 2, bias=False)
+
+        self.local_attn = CausalLocalAttention(head_dim, cntx, window_size)
+    
+    def forward(self, x):
+        q = einx.rearrange('b t (h c) -> b t h c', self.wq(x), h = self.qheads)
+
+        k, v = einx.rearrange('b t ((h c) + (h c)) -> b t h c, b t h c', self.wkv(x), h=1)
+
+        k,v = map(lambda x: einx.rearrange('b t h c -> b t (h r) c', x, r=self.qheads), (k, v))
+
+        y = self.local_attn(q, k, v)
+
+        y = einx.rearrange('b t h c -> b t (h c)', y)
+
+        return y
+
 # -----------------------------Feed Forward Blocks-------------------------------
 
 class GatedFeedForward(nn.Module):
@@ -239,6 +399,19 @@ class GatedFeedForward(nn.Module):
 
     def forward(self, x):
         return self.proj_out(F.silu(self.gate(x)) * self.proj_in(x))
+
+class GatedMLP(nn.Module):
+    def __init__(self, dim: int, act_fn: Callable[[torch.Tensor], torch.Tensor] = F.gelu, expansion_factor: int = 3):
+        super().__init__()
+
+        self.gate = nn.Linear(dim, dim*expansion_factor)
+        self.act_fn = act_fn
+
+        self.w1 = nn.Linear(dim, dim*expansion_factor)
+        self.wo = nn.Linear(dim * expansion_factor, dim)
+    
+    def forward(self, x):
+        return self.wo(self.act_fn(self.gate(x)) * self.w1(x))
     
 # -----------------------------Mixture of Expert Layers-------------------------------
     
@@ -307,3 +480,70 @@ class MoeRegLayer(nn.Module):
             output[idx] += hidden_states[idx, chosen_expert, None] * expert(x[idx])
             
         return output.view(B,T,C)
+
+# -----------------------------RNN Layers-------------------------------
+# Adapted from https://arxiv.org/abs/2402.19427
+class RG_LRU(nn.Module):
+    def __init__(self, dim: int):
+        super().__init__()
+
+        self.input_gate = nn.Linear(dim, dim, bias=True)
+        self.recurrent_gate = nn.Linear(dim, dim, bias=True)
+
+        self.cap_lambda = nn.Parameter(torch.randn(1).uniform_(.9, .999))
+
+    def calc_at(self, rt):
+        lhs = -8 * F.softplus(self.cap_lambda)
+        log_at = lhs * rt
+        return torch.exp(log_at)
+    
+    def circline_transform(self, at):
+        return torch.sqrt(1 - (at**2))
+    
+    def calc_ht(self, xt, ht_prev):
+        it, rt = torch.sigmoid(self.input_gate(xt)), torch.sigmoid(self.recurrent_gate(xt))
+
+        at = self.calc_at(rt)
+
+        ht = (at * ht_prev) + (self.circline_transform(at) * (it * xt))
+        return ht
+
+    def forward(self, x):
+        b, t, c = x.shape
+        ht_prev = torch.zeros(b, c)
+        states = []
+        
+        for i in range(t):
+            xt = x[:, i, :]
+            ht = self.calc_ht(xt, ht_prev)
+            ht_prev = ht
+            states.append(ht)
+        
+        yt = einx.rearrange('b (t c) -> b t c', torch.cat(states, 1), t=t)
+        
+        return yt
+    
+class RecurrentBlock(nn.Module):
+    def __init__(self, dim: int):
+        super().__init__()
+
+        self.gate = nn.Linear(dim, dim)
+        
+        self.fc_in = nn.Linear(dim, dim)
+
+        # assuming these settings to maintain shape
+        self.conv_layer = nn.Conv1d(in_channels=dim, out_channels=dim, kernel_size=4, dilation=2, padding=3)
+
+        self.cell = RG_LRU(dim)
+        self.fc_out = nn.Linear(dim, dim)
+    
+    def forward(self, x):
+        gate_out, temp_out = F.gelu(self.gate(x)), self.fc_in(x)
+
+        temp_out = einx.rearrange('b t c -> b c t', temp_out)
+        temp_out = einx.rearrange('b c t -> b t c',self.conv_layer(temp_out))
+
+        temp_out = self.cell(temp_out)
+        return self.fc_out(
+            temp_out * gate_out
+        )
