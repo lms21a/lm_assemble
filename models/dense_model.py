@@ -53,3 +53,8 @@ class DenseGPT(nn.Module):
             x = block(x)
 
         return self.proj_out(x)
+    
+    def print_model_size(self):
+        total_params = sum(p.numel() for p in self.parameters())
+        formatted_size = "{:,}".format(total_params)
+        print(f"Model size: {formatted_size} parameters")

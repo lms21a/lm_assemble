@@ -37,6 +37,27 @@ def eval_model(eval_steps, model, train_iter, test_iter):
 
     return 0
 
+@torch.inference_mode()
+def eval_fn(eval_steps, model, train_iter, test_iter):
+    train_losses = []
+    test_losses = []
+    
+    with torch.inference_mode():
+        for step in range(eval_steps):
+            x_train, y_train = next(train_iter)
+            x_test, y_test = next(test_iter)
+            
+            train_loss = loss_fn(model, x_train, y_train)
+            train_losses.append(train_loss.item())
+            
+            test_loss = loss_fn(model, x_test, y_test)
+            test_losses.append(test_loss.item())
+
+    average_train_loss = sum(train_losses) / len(train_losses)
+    average_test_loss = sum(test_losses) / len(test_losses)
+
+    return average_train_loss, average_test_loss
+
 def timestamp():
     # Get the current date and time
     now = datetime.now()
@@ -144,7 +165,7 @@ def clear_folder_contents(folder_path, ignore_file_types=None):
         except Exception as e:
             print(f'Failed to delete {file_path}. Reason: {e}')
 
-def plot_csv(csv_filepath):
+def plot_csv(csv_filepath, accuracy=False):
     # Read the CSV file into a DataFrame
     df = pd.read_csv(csv_filepath)
     
@@ -159,14 +180,57 @@ def plot_csv(csv_filepath):
     plt.title('Loss over Steps')
     plt.legend()
     
-    # Plotting Accuracy (Train and Test)
-    plt.subplot(1, 2, 2)
-    plt.plot(df['Step'], df['Train_Acc'], label='Train Accuracy')
-    plt.plot(df['Step'], df['Test_Acc'], label='Test Accuracy')
+    if accuracy:
+        # Plotting Accuracy (Train and Test)
+        plt.subplot(1, 2, 2)
+        plt.plot(df['Step'], df['Train_Acc'], label='Train Accuracy')
+        plt.plot(df['Step'], df['Test_Acc'], label='Test Accuracy')
+        plt.xlabel('Step')
+        plt.ylabel('Accuracy')
+        plt.title('Accuracy over Steps')
+        plt.legend()
+        
+        plt.tight_layout()
+        plt.show()
+
+def plot_csvs(csv_filepaths, accuracy=False):
+    plt.figure(figsize=(14, 6))
+    
+    for csv_filepath in csv_filepaths:
+        # Read each CSV file into a DataFrame
+        df = pd.read_csv(csv_filepath)
+        
+        # Assuming each CSV file has a unique identifier to distinguish them in the plot
+        # You can adjust the unique_identifier logic as needed
+        unique_identifier = csv_filepath.split('/')[-1].split('.')[0]  # Extract filename without extension
+        
+        # Plotting Loss (Train and Test)
+        plt.subplot(1, 2, 1)
+        plt.plot(df['Step'], df['Train_Loss'], label=f'Train Loss ({unique_identifier})')
+        plt.plot(df['Step'], df['Test_Loss'], label=f'Test Loss ({unique_identifier})')
+    
     plt.xlabel('Step')
-    plt.ylabel('Accuracy')
-    plt.title('Accuracy over Steps')
+    plt.ylabel('Loss')
+    plt.title('Loss over Steps')
     plt.legend()
     
+    if accuracy:
+        plt.subplot(1, 2, 2)
+        for csv_filepath in csv_filepaths:
+            # Read each CSV file into a DataFrame
+            df = pd.read_csv(csv_filepath)
+            
+            # Assuming each CSV file has a unique identifier to distinguish them in the plot
+            unique_identifier = csv_filepath.split('/')[-1].split('.')[0]  # Extract filename without extension
+            
+            # Plotting Accuracy (Train and Test)
+            plt.plot(df['Step'], df['Train_Acc'], label=f'Train Accuracy ({unique_identifier})')
+            plt.plot(df['Step'], df['Test_Acc'], label=f'Test Accuracy ({unique_identifier})')
+        
+        plt.xlabel('Step')
+        plt.ylabel('Accuracy')
+        plt.title('Accuracy over Steps')
+        plt.legend()
+        
     plt.tight_layout()
     plt.show()
