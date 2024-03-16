@@ -1,116 +1,133 @@
-import numpy as np
-
-import torch
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
-import torch.optim as optim
-from pytorch_datasets import AutoRegDataset
-from torch.cuda.amp import GradScaler, autocast
-
-import os
-import argparse
-from functools import partial
+import fire
 from tqdm import tqdm
 
-from helper_func import (
-    update_lr_linear_annealing, timing, load_checkpoint, 
-    save_checkpoint, eval_model, loss_fn,
-    count_parameters, timestamp
-)
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.optim import Optimizer
+from torch.utils.data import DataLoader
 
-from models.dense_model import DenseGPT, DenseConfig
-import wandb
+import os
 
+from datasets import load_from_disk
 
-if __name__ == '__main__':
+from schedulers import get_cosine_annealing
+from models.dense_model import get_model_config, DenseGPT
+from loggers import CSVLogger
+from pytorch_datasets import HF_AutoReg
 
-    parser = argparse.ArgumentParser(description="Training script for MoE Hash GPT Model")
-    parser.add_argument('--steps', type=int, default=100, help='Number of training steps')
-    parser.add_argument('--eval_every_n', type=int, default=10, help='Frequency of evaluations')
-    parser.add_argument('--eval_steps', type=int, default=20, help='Number of steps for evaluation')
-    parser.add_argument('--grad_accum_steps', type=int, default=4, help='Gradient accumulation steps')
-    parser.add_argument('--max_lr', type=float, default=1e-3, help='Maximum learning rate')
-    parser.add_argument('--check_point_interval', type=int, default=50, help='Checkpoint interval')
-    parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help='Directory for checkpoints')
-    parser.add_argument('--resume', action='store_true', default=False, help='Resume from the last checkpoint')
-    parser.add_argument('--filename', type=str, help='Checkpoint filename to resume from')
+def save_state(model: nn.Module, optimizer: Optimizer, step: int, filename: str= "checkpoints/"):
+    state = {
+        'step': step,
+        'model_state': model.state_dict(),
+        'optimizer_state': optimizer.state_dict(),
+    }
 
-    parser.add_argument('--vocab_size', type=int, default=1024, help='Vocabulary size')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
-    parser.add_argument('--cntx', type=int, default=32, help='Context size')
-    parser.add_argument('--dim', type=int, default=32, help='Dimension size')
-    parser.add_argument('--num_heads', type=int, default=4, help='Number of attention heads')
-    parser.add_argument('--num_layers', type=int, default=4, help='Number of layers')
-    # parser.add_argument('--num_experts', type=int, default=4, help='Number of experts')
+    torch.save(state, filename)
 
-    args = parser.parse_args()
+def load_state(filename: str, model: nn.Module, optimizer: Optimizer):
 
-    torch.manual_seed(1)
+    checkpoint = torch.load(filename)
+    
+    model.load_state_dict(checkpoint['model_state'])
+    optimizer.load_state_dict(checkpoint['optimizer_state'])
+    step = checkpoint['step']
+    
+    return step
 
-    train_arr = np.memmap('data/train_memmap.tokens', mode ='r', dtype = np.int16)
-    test_arr = np.memmap('data/test_memmap.tokens', mode ='r', dtype = np.int16)
+def loss_fn(model, x, y):
+    logits = model(x)
+    loss = F.cross_entropy(logits.view(-1, logits.size(-1)).float(), y.view(-1))
+    return loss
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+@torch.inference_mode()
+def eval_fn(eval_steps, model, train_iter, test_iter):
+    train_losses = []
+    test_losses = []
 
-    model_config = DenseConfig(
-        vocab_size=args.vocab_size,
-        batch_size=args.batch_size,
-        cntx=args.cntx,
-        dim=args.dim,
-        num_heads=args.num_heads,
-        num_layers=args.num_layers
-    )
+    for step in range(eval_steps):
+        x_train, y_train = next(train_iter)
+        x_test, y_test = next(test_iter)
+        
+        train_loss = loss_fn(model, x_train, y_train)
+        train_losses.append(train_loss.item())
+        
+        test_loss = loss_fn(model, x_test, y_test)
+        test_losses.append(test_loss.item())
 
-    model = DenseGPT(config=model_config).to(device=device)
-    print(count_parameters(model))
-    scaler = GradScaler()
-    optimizer = optim.AdamW(model.parameters(), lr=args.max_lr)
-    scheduler = partial(update_lr_linear_annealing, total_steps=args.steps, max_lr=args.max_lr, min_lr=args.max_lr/10)
+    average_train_loss = sum(train_losses) / len(train_losses)
+    average_test_loss = sum(test_losses) / len(test_losses)
 
-    resume_from = load_checkpoint(model, optimizer, scaler, os.path.join(args.checkpoint_dir, args.filename)) if args.resume else 0 
+    return average_train_loss, average_test_loss
+
+def train(
+    model_size: str = 'tiny',
+    device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
+    dtype: str = 'float32',
+    steps: int = 100,
+    grad_accum_steps: int = 1,
+    eval_every_n: int = 25,
+    eval_steps: int = 100,
+    max_lr: float = 1e-3,
+    min_lr: float = 1e-4,
+    warmup_steps: int = 10,
+    checkpoint_dir: str = 'checkpoints/',
+    resume: bool = False,
+    checkpoint_file: str | None = 'checkpoint',
+    save_every_n: int = 50,
+    batch_size: int = 32
+):
+
+    ds = load_from_disk('data/ag_news-ds')
+    dtype = torch.float32 if dtype == 'float32' else None
+
+    config = get_model_config(model_size)
+    model = DenseGPT(config).to(device, dtype)
 
     train_iter = iter(DataLoader(
-    dataset=AutoRegDataset(train_arr, model_config.cntx, device),
-    batch_size=model_config.batch_size 
+        dataset=HF_AutoReg(ds['train'], config.cntx),
+        batch_size=batch_size
     ))
 
     test_iter = iter(DataLoader(
-        dataset=AutoRegDataset(test_arr, model_config.cntx, device),
-        batch_size=model_config.batch_size
+        dataset=HF_AutoReg(ds['test'], config.cntx),
+        batch_size=batch_size
     ))
 
-    model._init_params()
-    wandb.init(project='LM_Assemble', name=f'moe_hash_v2_{timestamp()}')
+    file_name = os.path.join(checkpoint_dir, checkpoint_file)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=max_lr)
+    logger = CSVLogger('loss_log.csv', fieldnames=['Step', 'Train_Loss', 'Test_Loss'], resume=resume)
 
-    with timing('Training Time'):    
-        for step in tqdm(range(resume_from, args.steps), desc = 'Training The Model'):
-            
-            if step % args.eval_every_n == 0 or (step == args.steps-1):
-                eval_model(args.eval_steps, model, train_iter, test_iter)
+    scheduler = get_cosine_annealing(max_lr, min_lr, steps, warmup_steps)
 
-            with autocast():
-                for i in range(args.grad_accum_steps):
-                    x, y = next(train_iter)
-                    loss = loss_fn(model, x, y)
-                    loss = loss / args.grad_accum_steps
-                
-                    scaler.scale(loss).backward()
+    start_step = load_state(file_name, model, optimizer) if resume else 0
+
+    # Training Loop
+    for step in tqdm(range(start_step, steps), desc='Training'):
         
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        scheduler(step, optimizer)
+
+        if step % eval_every_n == 0 or step == steps - 1:
+            avg_train, avg_test = eval_fn(eval_steps, model, train_iter, test_iter)
+            logger.log(
+                Step=step,
+                Train_Loss=avg_train,
+                Test_Loss=avg_test
+            )
+
+        for _ in range(grad_accum_steps):
+            x, y = next(train_iter)
+            loss = loss_fn(model, x, y)
+            loss = loss / grad_accum_steps
+            loss.backward()
         
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad(set_to_none = True)
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
 
-            scheduler(optimizer, step)
+        if step % save_every_n == 0 or step == steps - 1:
+            save_state(model, optimizer, step, filename=file_name + f'_{step}')
 
-            if step % args.check_point_interval == 0 or (step == args.steps-1):
-                checkpoint = {
-                    'step': step,
-                    'model_state': model.state_dict(),
-                    'optimizer_state': optimizer.state_dict(),
-                    'scaler_state': scaler.state_dict()
-                }
-                file_name = f'checkpoint_{step}'
-                save_checkpoint(checkpoint, file_name)
+
+if __name__ == '__main__':
+    fire.Fire(train)
+    

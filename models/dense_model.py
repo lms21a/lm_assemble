@@ -58,3 +58,9 @@ class DenseGPT(nn.Module):
         total_params = sum(p.numel() for p in self.parameters())
         formatted_size = "{:,}".format(total_params)
         print(f"Model size: {formatted_size} parameters")
+
+def get_model_config(model_size: str) -> nn.Module:
+    model_configs = {
+        'tiny': DenseConfig(vocab_size=1024, cntx=32, dim=32, num_heads=8, num_layers=4, batch_size=-1),
+    }
+    return model_configs[model_size]
