@@ -99,3 +99,27 @@ class HF_AutoReg(IterableDataset):
                 current_shard = self.dataset.shard(self.num_shards, index=i)
                 tokens = flatten_list(current_shard['tokens'])
                 yield from make_autoreg(tokens, self.cntx, **self.kwargs)
+
+class OnebyOne(IterableDataset):
+
+    def __init__(self, dataset: DatasetDict, device: str = 'cpu'):
+        super().__init__()
+        self.dataset = dataset
+        self.max_cntx = max(dataset['num_tokens'])
+        self.device = device
+        self.num_rows = dataset.num_rows
+
+    def __iter__(self) -> Iterator:
+        description_order = list(range(self.num_rows))
+        shuffle(description_order)
+
+        while True:
+            for idx in description_order:
+                obs = self.dataset[idx]
+                tokens = torch.tensor(obs['tokens'], device=self.device)
+                labels = torch.tensor([obs['label']], device=self.device)
+
+                if len(tokens) > self.max_cntx:
+                    tokens = tokens[:self.max_cntx]
+                
+                yield tokens, labels
