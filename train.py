@@ -85,12 +85,12 @@ def train(
     model = DenseGPT(config).to(device, dtype)
 
     train_iter = iter(DataLoader(
-        dataset=HF_AutoReg(ds['train'], config.cntx),
+        dataset=HF_AutoReg(ds['train'], config.cntx, device=device),
         batch_size=batch_size
     ))
 
     test_iter = iter(DataLoader(
-        dataset=HF_AutoReg(ds['test'], config.cntx),
+        dataset=HF_AutoReg(ds['test'], config.cntx, device=device),
         batch_size=batch_size
     ))
 
@@ -130,4 +130,3 @@ def train(
 
 if __name__ == '__main__':
     fire.Fire(train)
-    
