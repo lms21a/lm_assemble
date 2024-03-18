@@ -102,10 +102,10 @@ class HF_AutoReg(IterableDataset):
 
 class OnebyOne(IterableDataset):
 
-    def __init__(self, dataset: DatasetDict, device: str = 'cpu'):
+    def __init__(self, dataset: DatasetDict, max_cntx: int, device: str = 'cpu'):
         super().__init__()
         self.dataset = dataset
-        self.max_cntx = max(dataset['num_tokens'])
+        self.max_cntx = max_cntx
         self.device = device
         self.num_rows = dataset.num_rows
 

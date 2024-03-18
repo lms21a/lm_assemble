@@ -62,6 +62,6 @@ class DenseGPT(nn.Module):
 def get_model_config(model_size: str) -> nn.Module:
     model_configs = {
         'tiny': DenseConfig(vocab_size=1024, cntx=32, dim=32, num_heads=8, num_layers=4, batch_size=-1),
-        'tiny_long_cntx': DenseConfig(vocab_size=1024, cntx=256, dim=32, num_heads=8, num_layers=4, batch_size=-1)
+        'tiny_long_cntx': DenseConfig(vocab_size=1024, cntx=512, dim=32, num_heads=8, num_layers=4, batch_size=-1)
     }
     return model_configs[model_size]

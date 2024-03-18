@@ -15,6 +15,20 @@ from loggers import CSVLogger
 from pytorch_datasets import OnebyOne
 from schedulers import get_cosine_annealing
 
+def save_model(model: nn.Module, filename: str):
+    torch.save(model.state_dict(), filename)
+
+def load_pretrained_model_for_classification(pretrained_model_path, model, config, num_classes):
+    pretrained_state_dict = torch.load(pretrained_model_path)
+
+    # Optional: Remove proj_out layer weights from the pretrained state dict if necessary
+    pretrained_state_dict = {key: value for key, value in pretrained_state_dict.items() if not key.startswith('proj_out')}
+
+    model.load_state_dict(pretrained_state_dict, strict=False)
+    model.proj_out = nn.Linear(config.dim, num_classes)
+
+    return model
+
 def save_state(model: nn.Module, optimizer: Optimizer, step: int, filename: str= "checkpoints/"):
     state = {
         'step': step,
@@ -36,14 +50,16 @@ def load_state(filename: str, model: nn.Module, optimizer: Optimizer):
 
 def loss_fn(model, x, y):
     logits = model(x)
-    loss = F.cross_entropy(logits, y.view(-1), ignore_index=0)
+    logits = torch.mean(logits, dim=1)
+    loss = F.cross_entropy(logits, y.view(-1))
     return loss
 
 @torch.inference_mode()
 def loss_and_eval_fn(model, x, y):
     target = y.view(-1)
     logits = model(x)
-    loss = F.cross_entropy(logits, target, ignore_index=0)
+    logits = torch.mean(logits, dim=1)
+    loss = F.cross_entropy(logits, target)
     classification = torch.argmax(torch.softmax(logits, dim=-1), dim=-1)
     accuracy = (classification == target).float().mean()
     return loss.item(), accuracy.item()
@@ -63,6 +79,8 @@ def eval_model(eval_steps, model, train_iter, test_iter):
 
 def train(
     model_size: str = 'tiny',
+    pretrained_model: str | None = 'saved_models/pretrained_tiny_long_cntx',
+    save_final_model: str = 'saved_models/agGPT',
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
     dtype: str = 'float32',
     steps: int = 100,
@@ -72,27 +90,31 @@ def train(
     max_lr: float = 1e-3,
     min_lr: float = 1e-4,
     warmup_steps: int = 10,
+    resume: bool = False,
     checkpoint_dir: str = 'checkpoints/',
-    resume: bool = True,
-    checkpoint_file: str | None = 'checkpoint_29999',
+    checkpoint_file: str | None = 'checkpoint',
     save_every_n: int = 50,
     batch_size: int = 1
+
 ):
 
-    assert batch_size == 1, "Batch Size must be one for onebyone fine tuning"
+    assert batch_size == 1, "Batch Size must be one for one-by-one fine tuning"
     ds = load_from_disk('data/ag_news-ds')
     dtype = torch.float32 if dtype == 'float32' else None
 
     config = get_model_config(model_size)
     model = DenseGPT(config).to(device, dtype)
 
+    if pretrained_model is not None:
+        model = load_pretrained_model_for_classification(pretrained_model, model, config, 4)
+
     train_iter = iter(DataLoader(
-        dataset=OnebyOne(ds['train'], config.cntx, device=device),
+        dataset=OnebyOne(ds['train'], max_cntx=config.cntx, device=device),
         batch_size=batch_size
     ))
 
     test_iter = iter(DataLoader(
-        dataset=OnebyOne(ds['test'], config.cntx, device=device),
+        dataset=OnebyOne(ds['test'], max_cntx=config.cntx, device=device),
         batch_size=batch_size
     ))
 
@@ -128,5 +150,10 @@ def train(
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
 
-        if step % save_every_n == 0 or step == steps - 1:
+        if step % save_every_n == 0:
             save_state(model, optimizer, step, filename=file_name + f'_{step}')
+    
+    save_model(model, save_final_model)
+
+if __name__== '__main__':
+    fire.Fire(train)
