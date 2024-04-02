@@ -74,17 +74,17 @@ class RoPE(nn.Module):
         # Key for caching
         key = (seq_len, head_size, base)
         if key not in RoPE._cache:
-            self._precompute_freqs_cis()
-            RoPE._cache[key] = self.freqs_cis
+            RoPE._cache[key] = self._precompute_freqs_cis()
+            self.register_buffer('freqs_cis', RoPE._cache[key])
             
         else:
-            self.freqs_cis = RoPE._cache[key]            
+            self.register_buffer('freqs_cis', RoPE._cache[key]) 
             
     def _precompute_freqs_cis(self):
         freqs = 1.0 / (self.base ** (torch.arange(0, self.head_size, 2)[: (self.head_size // 2)].float() / self.head_size))
         t = torch.arange(self.seq_len, device=freqs.device)  # type: ignore
         freqs = torch.outer(t, freqs).float()  # type: ignore
-        self.freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
+        return torch.polar(torch.ones_like(freqs), freqs)  # complex64
     
     def _reshape_for_broadcast(self, freqs_cis, x):
         seq_len = x.size(1)  
