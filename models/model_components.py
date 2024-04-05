@@ -481,6 +481,45 @@ class MoeRegLayer(nn.Module):
             
         return output.view(B,T,C)
 
+class MoeECLayer(nn.Module):
+    """Expert-Choice (EC) Moe Layer"""
+    def __init__(
+            self,
+            dim: int,
+            num_experts: int,
+            capacity_factor: int,
+            act_fn: Callable[[torch.Tensor], torch.Tensor] = F.gelu
+    ):
+        super().__init__()
+        
+        self.capacity_factor = capacity_factor
+        self.num_experts = num_experts
+
+        self.wg = nn.Linear(dim, num_experts, bias=False)
+        self.experts = nn.ModuleList([
+            GatedMLP(dim, act_fn=act_fn) for _ in range(num_experts)
+        ])
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, C = x.shape
+        n = B * T
+
+        x = x.view(n, C)
+        k = n * self.capacity_factor // self.num_experts
+
+        S = torch.softmax(self.wg(x), dim=-1)
+        G, I = torch.topk(S.t(), k)
+
+        P = F.one_hot(I, num_classes=n).float()
+
+        x = einsum('e k n, n d -> e k d', P, x)
+
+        out = torch.zeros(n, C)
+        for expert in self.experts:
+            out += einsum('e k n, e k, e k d -> n d', P, G, expert(x))
+
+        return out.view(B, T, C)
+
 # -----------------------------RNN Layers-------------------------------
 # Adapted from https://arxiv.org/abs/2402.19427
 class RG_LRU(nn.Module):
