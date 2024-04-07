@@ -4,7 +4,7 @@ from torch.utils.data import IterableDataset
 from random import shuffle
 from typing import List, Any, Generator, Iterator
 from datasets import DatasetDict
-from helper_func import flatten_list
+from utils.helper_func import flatten_list
 
 class AutoRegDataset(IterableDataset):
     def __init__(self, ds, cntx, device):

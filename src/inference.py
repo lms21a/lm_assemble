@@ -1,6 +1,6 @@
 from models.hash_moe_model import MoeHashGPT, MoeHashGPTConfig
-from tokenizer import Tokenizer
-from sampler import Sampler
+from datatools.tokenizer import Tokenizer
+from datatools.sampler import Sampler
 
 import torch
 

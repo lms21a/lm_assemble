@@ -11,9 +11,9 @@ from torch.utils.data import DataLoader
 from datasets import load_from_disk
 
 from models.dense_model import get_model_config, DenseGPT
-from loggers import CSVLogger
-from pytorch_datasets import OnebyOne
-from schedulers import get_cosine_annealing
+from lm_assemble.utils.loggers import CSVLogger
+from datatools.pytorch_datasets import OnebyOne
+from lm_assemble.utils.schedulers import get_cosine_annealing
 
 def save_model(model: nn.Module, filename: str):
     torch.save(model.state_dict(), filename)
