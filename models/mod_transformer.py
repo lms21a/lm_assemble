@@ -57,8 +57,13 @@ class MoDTransformer(nn.Module):
             x = block(x)
 
         return self.proj_out(x)
+    
+    def print_model_size(self):
+        total_params = sum(p.numel() for p in self.parameters())
+        formatted_size = "{:,}".format(total_params)
+        print(f"Model size: {formatted_size} parameters")
 
-def get_model_config(model_size: str):
+def get_mod_config(model_size: str):
 
     if model_size == 'tiny':
         return MoDConfig(

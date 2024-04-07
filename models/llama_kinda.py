@@ -54,7 +54,7 @@ class LlamaKinda(nn.Module):
         formatted_size = "{:,}".format(total_params)
         print(f"Model size: {formatted_size} parameters")
 
-def get_model_config(model_size: str):
+def get_llama_config(model_size: str):
     if model_size == 'tiny':
         return LlamaConfig(
             dim=64,

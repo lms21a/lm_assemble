@@ -1,10 +1,45 @@
+import math
 import torch
 import torch.nn.functional as F
-from torch.utils.data import IterableDataset
+from torch.utils.data import IterableDataset, Dataset
+import numpy as np
 from random import shuffle
 from typing import List, Any, Generator, Iterator
 from datasets import DatasetDict
 from utils.helper_func import flatten_list
+
+# Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/training/src/datamodules/datasets/lm_dataset.py
+class AutoRegMapped(Dataset):
+    def __init__(self, data_file: str, max_cntx: int, device: str):
+        super().__init__()
+        self.data_file = data_file
+        self.max_cntx = max_cntx
+        self.device = device
+
+        self._determine_arr_type()
+        self.num_tokens = self._get_num_tokens()
+    
+    def _determine_arr_type(self):
+        if self.data_file.endswith('.npy'):
+            self.data = np.load(self.data_file)
+            
+        elif self.data_file.endswith('.tokens'):
+            self.data = np.memmap(self.data_file, dtype=np.int16, mode='r')
+    
+    def _get_num_tokens(self):
+        num_tokens = len(self.data)
+        num_tokens = ((num_tokens - 1) // self.max_cntx) * self.max_cntx + 1
+        return num_tokens
+    
+    def __len__(self):
+        total_seqs = math.ceil((self.num_tokens - 1) / self.max_cntx)
+        return total_seqs
+    
+    def __getitem__(self, idx):
+        start_idx = idx * self.max_cntx
+        chunk = min(self.max_cntx, self.num_tokens - start_idx - 1) # Need 1 for autoreg
+        tensor = torch.tensor(self.data[start_idx:start_idx + chunk + 1], dtype=torch.int64, device=self.device)
+        return tensor[:-1], tensor[1: ].clone()
 
 class AutoRegDataset(IterableDataset):
     def __init__(self, ds, cntx, device):
@@ -26,9 +61,9 @@ class AutoRegDataset(IterableDataset):
                 start = i * self.cntx
                 end = start + self.cntx + 1 # Increase size by 1 to slice autoregressively at the end
 
-                block = torch.from_numpy(self.ds[start:end].copy()).to(dtype=torch.int64, device=self.device, non_blocking = True)
+                block = torch.from_numpy(self.ds[start:end]).to(dtype=torch.int64, device=self.device, non_blocking = True)
                 x = block[:-1]
-                y = block[1:]
+                y = block[1:].clone()
                 yield x, y
 
 class LabeledDataset(IterableDataset):
