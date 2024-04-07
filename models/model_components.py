@@ -1,4 +1,4 @@
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
 
 import torch
 from torch import einsum, Tensor
@@ -413,7 +413,7 @@ class GatedMLP(nn.Module):
     def forward(self, x):
         return self.wo(self.act_fn(self.gate(x)) * self.w1(x))
     
-# -----------------------------Mixture of Expert Layers-------------------------------
+# -----------------------------Mixture of Expert and Depth Layers-------------------------------
     
 class MoeHashLayer(nn.Module):
     def __init__(self, dim, num_experts):
@@ -519,6 +519,49 @@ class MoeECLayer(nn.Module):
             out += einsum('e k n, e k, e k d -> n d', P, G, expert(x))
 
         return out.view(B, T, C)
+
+class MoDBlock(nn.Module):
+    def __init__(self, block: nn.Module, dim: int, max_cntx: int, cap_percentile: int):
+        super().__init__()
+
+        self.dim = dim
+        self.max_cntx = max_cntx
+        self.block = block
+        self.capacity = int((1 - cap_percentile) * max_cntx)
+
+        self.router = nn.Linear(dim, 1, bias=False)
+        self.predictor = nn.Linear(dim, 1, bias=False)
+
+    def router_aux_loss(self, x: torch.Tensor, router_logits: torch.Tensor, idxs: torch.Tensor):
+        targets = torch.zeros_like(router_logits).view(-1)
+        targets[idxs.view(-1)] = 1
+        pred = self.predictor(x.detach().view(-1, self.dim)).view(-1)
+
+        return F.binary_cross_entropy_with_logits(pred, targets)
+        
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        router_logits = torch.sigmoid(self.router(x)) # B T 1
+
+        # (B cap 1), (B, cap 1)
+        selected_weights, idxs = torch.topk(router_logits, self.capacity, dim=-2, sorted=False)
+        aux_loss = self.router_aux_loss(x, router_logits, idxs)
+        idxs, sort_idx = idxs.sort(dim=-2)
+        idxs = idxs.expand(-1, -1, self.dim)
+
+        router_weights = torch.gather(selected_weights, 1, sort_idx) # (B, cap, 1)
+        selected_tokens = torch.gather(x, 1, idxs) # (B cap C)
+
+        block_out = self.block(selected_tokens)
+        
+        # maintain residual and adding in the selected tokens
+        out = torch.scatter(
+            x,
+            1,
+            idxs,
+            block_out * router_weights
+        )
+
+        return out, aux_loss
 
 # -----------------------------RNN Layers-------------------------------
 # Adapted from https://arxiv.org/abs/2402.19427
