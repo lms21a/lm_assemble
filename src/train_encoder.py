@@ -3,15 +3,15 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from datasets import load_from_disk
-from pytorch_datasets import LabeledDataset
+from datatools.pytorch_datasets import LabeledDataset
 from torch.utils.data import DataLoader
 
 from models.encoder_transformer import MoeEncoderConfig, MoeEncoderTransformer
 
 from tqdm import tqdm
 from functools import partial
-from loggers import CSVLogger
-from helper_func import plot_csv
+from utils.loggers import CSVLogger
+from utils.helper_func import plot_csv
 
 def loss_fn(model, x, y):
     logits = model(x)

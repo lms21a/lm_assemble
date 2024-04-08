@@ -1,19 +1,16 @@
+import os
+import fire
+import shutil
 import numpy as np
 from tqdm import tqdm
-from datasets import load_dataset
-from tokenizer import Tokenizer
-
-import os
-import shutil
 from functools import partial
+from datasets import load_dataset
+from datatools.tokenizer import Tokenizer
 
-def tokenize(example, tokenizer):
-    tokens = tokenizer.encode(example['captions'])
-    return {'tokens': tokens}
-
-def token_length(examples):
-    num_tokens = [len(e) for e in examples['tokens']]
-    return {'num_tokens': num_tokens}
+def tokenize(example, feature_col, tokenizer):
+    tokens = tokenizer.encode(example[feature_col])
+    num_tokens = [len(t) for t in tokens]
+    return {'tokens': tokens, 'num_tokens': num_tokens}
 
 def create_memmap(dataset, filename, dtype=np.int16):
     total_tokens = sum(dataset['num_tokens'])
@@ -56,34 +53,49 @@ def clear_folder_contents(folder_path, ignore_file_types=None):
         except Exception as e:
             print(f'Failed to delete {file_path}. Reason: {e}')
 
-if __name__ == '__main__':
-    
-    model_file = os.path.join('saved_models','spm_model.model')    
-    test_size = .1
+def prep_shakespeare(vocab_size: int) -> None:
 
-    tokenizer = Tokenizer(model_file=model_file)
+    dtype = np.int16 if vocab_size < 65536 else np.int32
+
+    tokenizer = Tokenizer('saved_models/shakespeare_tokenizer.model')
+
+    tokenizer.train_tokenizer(data = 'data/shakespeare.txt', vocab_size=vocab_size)
+
+    with open('data/shakespeare.txt', 'r') as file:
+        text = file.read()
+
+    tokens = np.array(tokenizer.encode(text), dtype=dtype)
+    np.save('data/shakespeare_tokens.npy', tokens)
+    clear_folder_contents('data/', ignore_file_types=['.npy', '.tokens'])
+
+def prep_lex(vocab_size: int, tokenizer_sample_size: float = .1):
+    feature_col = 'captions'
+    dtype = np.int16 if vocab_size < 65536 else np.int32
 
     ds = load_dataset("RamAnanth1/lex-fridman-podcasts", cache_dir='data', split='train')
 
+    tokenizer = Tokenizer('saved_models/lex_tokenizer.model')
+    
     tokenizer.train_tokenizer(
-        dataset=ds.select_columns(['captions']),
-        vocab_size=1024,
-        tokenizer_sample_size=.1
+        data=ds.select_columns([feature_col]),
+        vocab_size=vocab_size,
+        tokenizer_sample_size=tokenizer_sample_size
     )
 
-    tokenizer.load_tokenizer(add_bos=True, add_eos=True)
-
-    tokenize_fn = partial(tokenize, tokenizer=tokenizer)
+    tokenize_fn = partial(tokenize, feature_col=feature_col, tokenizer=tokenizer)
     rm_cols = list(ds.features)
     ds = ds.map(tokenize_fn, batched=True, remove_columns=rm_cols)
-    
-    ds = ds.shuffle().train_test_split(test_size=test_size)
-    ds = ds.map(token_length, batched=True)
 
-    train_memmap = create_memmap(ds['train'], 'data/train_memmap.tokens')
-    test_memmap = create_memmap(ds['test'], 'data/test_memmap.tokens')
+    data_memmap = create_memmap(ds, 'data/lex.tokens', dtype=dtype)
+    data_memmap.flush()
 
-    train_memmap.flush()
-    test_memmap.flush()
+    clear_folder_contents('data/', ignore_file_types=['.npy', '.tokens'])
 
-    clear_folder_contents('data', ignore_file_types=['.tokens'])
+def run_prep(dataset: str, vocab_size: int = 8000, tokenizer_sample_size: float = .1) -> None:
+    if dataset == 'shakespeare':
+        prep_shakespeare(vocab_size)
+    elif dataset == 'lex':
+        prep_lex(vocab_size, tokenizer_sample_size)
+
+if __name__ == '__main__':
+    fire.Fire(run_prep)

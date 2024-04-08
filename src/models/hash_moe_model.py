@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models.model_components import RMSNorm, MHA_RoPE, MoeHashV2Layer
+from src.models.model_components import RMSNorm, MHA_RoPE, MoeHashV2Layer
 from dataclasses import dataclass
 
 @dataclass

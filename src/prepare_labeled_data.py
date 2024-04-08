@@ -1,8 +1,8 @@
 from datasets import load_dataset
 import os
 from functools import partial
-from tokenizer import Tokenizer
-from helper_func import clear_folder_contents
+from datatools.tokenizer import Tokenizer
+from utils.helper_func import clear_folder_contents
 
 def tokenize(example, feature_col, tokenizer):
     tokens = tokenizer.encode(example[feature_col])

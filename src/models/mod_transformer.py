@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 from typing import Callable
 
-from models.model_components import MHA_RoPE, GatedMLP, RMSNorm, MoDBlock
+from src.models.model_components import MHA_RoPE, GatedMLP, RMSNorm, MoDBlock
 
 @dataclass
 class MoDConfig:
@@ -57,8 +57,13 @@ class MoDTransformer(nn.Module):
             x = block(x)
 
         return self.proj_out(x)
+    
+    def print_model_size(self):
+        total_params = sum(p.numel() for p in self.parameters())
+        formatted_size = "{:,}".format(total_params)
+        print(f"Model size: {formatted_size} parameters")
 
-def get_model_config(model_size: str):
+def get_mod_config(model_size: str):
 
     if model_size == 'tiny':
         return MoDConfig(
@@ -69,5 +74,5 @@ def get_model_config(model_size: str):
             expansion_factor=3,
             num_layers=4,
             cap_percentile=0.75,
-            vocab_size=1024
+            vocab_size=8000
         )
