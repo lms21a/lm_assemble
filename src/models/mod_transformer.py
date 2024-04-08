@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 from typing import Callable
 
-from models.model_components import MHA_RoPE, GatedMLP, RMSNorm, MoDBlock
+from src.models.model_components import MHA_RoPE, GatedMLP, RMSNorm, MoDBlock
 
 @dataclass
 class MoDConfig:
@@ -74,5 +74,5 @@ def get_mod_config(model_size: str):
             expansion_factor=3,
             num_layers=4,
             cap_percentile=0.75,
-            vocab_size=1024
+            vocab_size=8000
         )

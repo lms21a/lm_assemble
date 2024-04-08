@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models.model_components import RMSNorm, MultiHeadAttention, GatedFeedForward
+from src.models.model_components import RMSNorm, MultiHeadAttention, GatedFeedForward
 from dataclasses import dataclass
 
 @dataclass

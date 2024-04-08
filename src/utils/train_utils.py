@@ -36,17 +36,18 @@ def loss_fn(model: nn.Module, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 def eval_fn(eval_steps: int, model: nn.Module, train_loader: DataLoader, val_loader: DataLoader) -> torch.Tensor:
     metrics = torch.empty((eval_steps, 2))
-    reset_interval = min(len(train_loader), len(val_loader))
 
     model.eval()
     with torch.inference_mode():
         for step in range(eval_steps):
-            if step % reset_interval == 0:
+            try:
+                x_train, y_train = next(train_iter)
+                x_val, y_val = next(val_iter)
+            except:
                 train_iter = iter(train_loader)
                 val_iter = iter(val_loader)
-            
-            x_train, y_train = next(train_iter)
-            x_val, y_val = next(val_iter)
+                x_train, y_train = next(train_iter)
+                x_val, y_val = next(val_iter)
             
             train_loss = loss_fn(model, x_train, y_train)
             val_loss = loss_fn(model, x_val, y_val)

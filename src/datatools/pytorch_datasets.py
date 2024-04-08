@@ -6,7 +6,7 @@ import numpy as np
 from random import shuffle
 from typing import List, Any, Generator, Iterator
 from datasets import DatasetDict
-from utils.helper_func import flatten_list
+from src.utils.helper_func import flatten_list
 
 # Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/training/src/datamodules/datasets/lm_dataset.py
 class AutoRegMapped(Dataset):

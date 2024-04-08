@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader, random_split
-from datatools.pytorch_datasets import AutoRegMapped
+from src.datatools.pytorch_datasets import AutoRegMapped
 
 class DataProcessor:
     def __init__(

@@ -6,11 +6,11 @@ import wandb
 import fire
 from tqdm import tqdm
 
-from utils.train_utils import save_state, loss_fn, eval_fn
-from utils.schedulers import get_cosine_annealing
-from models.hps import Hyperparameters
-from models.llama_kinda import LlamaKinda, get_llama_config
-from models.mod_transformer import MoDTransformer, get_mod_config
+from src.utils.train_utils import save_state, loss_fn, eval_fn
+from src.utils.schedulers import get_cosine_annealing
+from src.models.hps import Hyperparameters
+from src.models.llama_kinda import LlamaKinda, get_llama_config
+from src.models.mod_transformer import MoDTransformer, get_mod_config
 from datatools.data_processor import DataProcessor
 
 
@@ -48,6 +48,7 @@ def train(model: nn.Module, config: dict, data_processor: DataProcessor):
             loss = loss / config.grad_accum_steps
             loss.backward()
         
+        optimizer.step()
         optimizer.zero_grad(set_to_none=True)
         scheduler(step, optimizer)
 
@@ -71,8 +72,6 @@ def run(
         weight_decay: float = 0.01,
         seed: int = 1,
         model_size: str = 'tiny',
-        dtype: str = 'float32',
-        training_precision: str = 'null' # null, mixed, te
     ):
 
     data_dict = {
@@ -96,14 +95,12 @@ def run(
         warmup_steps=warmup_steps,
         seed=seed,
         model_size=model_size,
-        dtype=dtype,
-        training_precision=training_precision,
         batch_size=batch_size,
         dataset=dataset
     )
 
     if model == 'reg':
-        model_config = get_llama_config(model_size, dtype=dtype)
+        model_config = get_llama_config(model_size)
         model = LlamaKinda(model_config)
 
     elif model == 'mod':

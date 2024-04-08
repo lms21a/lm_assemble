@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-from models.model_components import RMSNorm, RecurrentBlock, GatedMLP, LocalMQA
+from src.models.model_components import RMSNorm, RecurrentBlock, GatedMLP, LocalMQA
 
 from dataclasses import dataclass
 

@@ -1,5 +1,5 @@
 import torch.nn as nn
-from .model_components import MoeRegLayer, RMSNorm, MHA_RoPE
+from src.models.moe_model import MoeRegLayer, RMSNorm, MHA_RoPE
 
 class MoeRegBlock(nn.Module):
     def __init__(self, cntx, dim, num_heads, num_experts):

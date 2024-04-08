@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models.model_components import RMSNorm, MHA_RoPE, GatedMLP
+from src.models.model_components import RMSNorm, MHA_RoPE, GatedMLP
 from dataclasses import dataclass
 
 @dataclass
@@ -63,5 +63,5 @@ def get_llama_config(model_size: str):
             act_fn=F.gelu,
             expansion_factor=3,
             num_layers=4,
-            vocab_size=1024
+            vocab_size=8000
         )

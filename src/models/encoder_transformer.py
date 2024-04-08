@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models.model_components import RMSNorm, GatedFeedForward, UnmaskedMHA, MoeRegLayer
+from src.models.model_components import RMSNorm, GatedFeedForward, UnmaskedMHA, MoeRegLayer
 from dataclasses import dataclass
 import numpy as np
 
