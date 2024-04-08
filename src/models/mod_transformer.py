@@ -6,6 +6,9 @@ from typing import Callable
 
 from src.models.model_components import MHA_RoPE, GatedMLP, RMSNorm, MoDBlock
 
+# Adapted from https://arxiv.org/abs/2404.02258
+# Excellent work from the deepmind team! Was able to replicate results
+
 @dataclass
 class MoDConfig:
     dim: int
@@ -48,15 +51,17 @@ class MoDTransformer(nn.Module):
             for _ in range(config.num_layers)
         ])
 
-        self.proj_out = nn.Linear(config.dim, config.vocab_size)
+        self.proj_out = nn.Linear(config.dim, config.vocab_size, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.embed(x)
 
+        aux_loss = 0
         for block in self.blocks:
-            x = block(x)
+            x, aux_loss_per_block = block(x)
+            aux_loss += aux_loss_per_block
 
-        return self.proj_out(x)
+        return self.proj_out(x), aux_loss
     
     def print_model_size(self):
         total_params = sum(p.numel() for p in self.parameters())
@@ -73,6 +78,18 @@ def get_mod_config(model_size: str):
             act_fn=F.gelu,
             expansion_factor=3,
             num_layers=4,
-            cap_percentile=0.75,
+            cap_percentile=.3,
+            vocab_size=8000
+        )
+    
+    elif model_size == 'small':
+        return MoDConfig(
+            dim=128,
+            max_cntx=64,
+            num_heads=16,
+            act_fn=F.gelu,
+            expansion_factor=3,
+            num_layers=8,
+            cap_percentile=.5,
             vocab_size=8000
         )

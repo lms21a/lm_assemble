@@ -29,11 +29,19 @@ def load_state(filename: str, model: nn.Module, optimizer: Optimizer):
     
     return step
 
-def loss_fn(model: nn.Module, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    logits = model(x)
-    loss = F.cross_entropy(logits.view(-1, logits.size(-1)).float(), y.view(-1))
-    return loss
-
+def loss_fn(model: nn.Module, x: torch.Tensor, y: torch.Tensor, exclude_aux: bool = False) -> torch.Tensor:
+    output = model(x)
+    
+    if isinstance(output, tuple):
+        logits, auxiliary_loss = output
+        main_loss = F.cross_entropy(logits.view(-1, logits.size(-1)).float(), y.view(-1))
+        total_loss = main_loss + (0 if exclude_aux else auxiliary_loss)
+    else:
+        logits = output
+        total_loss = F.cross_entropy(logits.view(-1, logits.size(-1)).float(), y.view(-1))
+    
+    return total_loss
+    
 def eval_fn(eval_steps: int, model: nn.Module, train_loader: DataLoader, val_loader: DataLoader) -> torch.Tensor:
     metrics = torch.empty((eval_steps, 2))
 
@@ -49,8 +57,8 @@ def eval_fn(eval_steps: int, model: nn.Module, train_loader: DataLoader, val_loa
                 x_train, y_train = next(train_iter)
                 x_val, y_val = next(val_iter)
             
-            train_loss = loss_fn(model, x_train, y_train)
-            val_loss = loss_fn(model, x_val, y_val)
+            train_loss = loss_fn(model, x_train, y_train, exclude_aux=True)
+            val_loss = loss_fn(model, x_val, y_val, exclude_aux=True)
         
             metrics[step] = torch.tensor([train_loss.item(), val_loss.item()])
         

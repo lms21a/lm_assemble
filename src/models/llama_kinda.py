@@ -65,3 +65,14 @@ def get_llama_config(model_size: str):
             num_layers=4,
             vocab_size=8000
         )
+    
+    elif model_size == 'small':
+        return LlamaConfig(
+            dim=128,
+            max_cntx=64,
+            num_heads=16,
+            num_layers=8,
+            act_fn=F.gelu,
+            expansion_factor=3,
+            vocab_size=8000
+        )

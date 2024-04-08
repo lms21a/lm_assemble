@@ -99,9 +99,13 @@ def run(
         dataset=dataset
     )
 
-
-    model_config = get_llama_config(model_size)
-    model = LlamaKinda(model_config)
+    if model == 'reg':
+        model_config = get_llama_config(model_size)
+        model = LlamaKinda(model_config)
+    
+    elif model == 'mod':
+        model_config = get_mod_config(model_size)
+        model = MoDTransformer(model_config)
 
     data_processor = DataProcessor(data_dict[dataset], model_config.max_cntx, batch_size, device)
     
