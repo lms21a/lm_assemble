@@ -99,20 +99,17 @@ def run(
         dataset=dataset
     )
 
-    if model == 'reg':
-        model_config = get_llama_config(model_size)
-        model = LlamaKinda(model_config)
 
-    elif model == 'mod':
-        model_config = get_mod_config(model_size)
-        model = MoDTransformer(model_config)
+    model_config = get_llama_config(model_size)
+    model = LlamaKinda(model_config)
 
-    else:
-        raise ValueError(f'Unknown model: {model}')
-    
     data_processor = DataProcessor(data_dict[dataset], model_config.max_cntx, batch_size, device)
-    model.print_model_size()
+    
+    if device == 'cuda':
+        model = torch.compile_model(model)
+
     model.to(device)
+    model.print_model_size()
 
     wandb.init(project = 'LM_Assemble', config=config)
 
