@@ -72,6 +72,8 @@ def run(
         weight_decay: float = 0.01,
         seed: int = 1,
         model_size: str = 'tiny',
+        mask_threshold: float | None = None,
+        randomly_mask: float | None = None
     ):
 
     data_dict = {
@@ -107,7 +109,14 @@ def run(
         model_config = get_mod_config(model_size)
         model = MoDTransformer(model_config)
 
-    data_processor = DataProcessor(data_dict[dataset], model_config.max_cntx, batch_size, device)
+    data_processor = DataProcessor(
+        data_file=data_dict[dataset],
+        batch_size=batch_size,
+        max_cntx=model_config.max_cntx,
+        device=device,
+        mask_threshold=mask_threshold,
+        randomly_mask=randomly_mask
+    )
     
     if device == 'cuda':
         model = torch.compile_model(model)

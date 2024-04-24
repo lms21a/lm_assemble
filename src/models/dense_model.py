@@ -28,7 +28,7 @@ class DenseBlock(nn.Module):
         return out
 
 class DenseGPT(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: DenseConfig):
         super().__init__()
         
         self.embed = nn.Embedding(config.vocab_size, config.dim)

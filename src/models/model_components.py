@@ -387,6 +387,58 @@ class LocalMQA(nn.Module):
 
         return y
 
+class GQA_RoPE(nn.Module):
+    def __init__(
+            self,
+            dim: int,
+            cntx_len: int,
+            n_qhead: int,
+            n_kvhead: int
+    ):
+        super().__init__()
+        assert dim % n_qhead == 0, f'Embedding Dimension ({dim}) must be divisible by the number of query heads {n_qhead}'
+        assert n_qhead % n_kvhead == 0, f'Number of Query Heads ({n_qhead}) must be divisible by the number of Key-Value Heads {n_kvhead}'
+
+        self.dim = dim
+        self.n_qhead = n_qhead
+        self.n_kvhead = n_kvhead
+        self.head_dim = dim // n_qhead
+        self.group_dim = n_qhead // n_kvhead
+        
+        self.rope = RoPE(cntx_len, self.head_dim)
+
+        self.wq = nn.Linear(dim, dim, bias=False)
+        self.wk = nn.Linear(dim, self.n_kvhead * self.head_dim, bias=False)
+        self.wv = nn.Linear(dim, self.n_kvhead * self.head_dim, bias=False)
+        self.wo = nn.Linear(dim, dim, bias=False)
+    
+    def repeat_kv(self, k: torch.Tensor, v: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.group_dim == 1:
+            return k, v
+        
+        return k.repeat_interleave(self.group_dim, dim=-2), v.repeat_interleave(self.group_dim, dim=-2)
+
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, C = x.shape
+
+        q, k, v = self.wq(x), self.wk(x), self.wv(x)
+
+        q = q.view(B, T, self.n_qhead, self.head_dim)
+        k = k.view(B, T, self.n_kvhead, self.head_dim)
+        v = v.view(B, T, self.n_kvhead, self.head_dim)
+
+        q, k = self.rope.apply_freq_cis(q, k)
+        k, v = self.repeat_kv(k, v) # B T n_qheads head_dim
+
+        q, k, v = map(lambda x: x.transpose(1,2), (q,k,v))
+
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+
+        y = y.transpose(1,2).contiguous().view(B, T, C)
+
+        return self.wo(y)
+
 # -----------------------------Feed Forward Blocks-------------------------------
 
 class GatedFeedForward(nn.Module):

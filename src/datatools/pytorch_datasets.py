@@ -8,13 +8,21 @@ from typing import List, Any, Generator, Iterator
 from datasets import DatasetDict
 from src.utils.helper_func import flatten_list
 
-# Adapted from https://github.com/Dao-AILab/flash-attention/blob/main/training/src/datamodules/datasets/lm_dataset.py
 class AutoRegMapped(Dataset):
-    def __init__(self, data_file: str, max_cntx: int, device: str):
+    def __init__(
+            self,
+            data_file: str,
+            max_cntx: int,
+            device: str,
+            mask_threshold: float | None = None,
+            randomly_mask: float | None = None
+    ):
         super().__init__()
         self.data_file = data_file
         self.max_cntx = max_cntx
         self.device = device
+        self.randomly_mask = randomly_mask
+        self.mask_threshold = mask_threshold
 
         self._determine_arr_type()
         self.num_tokens = self._get_num_tokens()
@@ -35,11 +43,22 @@ class AutoRegMapped(Dataset):
         total_seqs = math.ceil((self.num_tokens - 1) / self.max_cntx)
         return total_seqs
     
+    def _randomly_mask(self, x: torch.Tensor) -> torch.Tensor:
+        mask = torch.rand(x.shape) < self.randomly_mask
+        return x.masked_fill(mask, 0)  # Replace masked elements with 0 (assuming 0 is the unknown token)
+    
     def __getitem__(self, idx):
         start_idx = idx * self.max_cntx
-        chunk = min(self.max_cntx, self.num_tokens - start_idx - 1) # Need 1 for autoreg
+        chunk = min(self.max_cntx, self.num_tokens - start_idx - 1)  # Ensure there's a next token for autoreg
         tensor = torch.tensor(self.data[start_idx:start_idx + chunk + 1], dtype=torch.int64, device=self.device)
-        return tensor[:-1], tensor[1: ].clone()
+
+        # Decide whether to mask based on mask_threshold
+        if self.mask_threshold is not None and torch.rand(1).item() < self.mask_threshold:
+            input_tensor = self._randomly_mask(tensor[:-1])
+        else:
+            input_tensor = tensor[:-1]
+        
+        return input_tensor, tensor[1:].clone()
 
 class AutoRegDataset(IterableDataset):
     def __init__(self, ds, cntx, device):
